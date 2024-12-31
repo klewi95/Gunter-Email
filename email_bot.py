@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import os
 import base64
@@ -12,16 +11,18 @@ import time
 from datetime import datetime
 
 class EmailBot:
-    def __init__(self, sender_email):
+    def __init__(self):
         self.SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
-        self.sender_email = sender_email
-        self.target_email = "schullenberg.guenter@t-online.de"
+        self.sender_email = st.secrets["gmail_sender"]
+        self.target_email = st.secrets["gmail_target"]
         self.service = self.setup_gmail()
-        self.claude = anthropic.Anthropic(api_key=st.session_state.claude_api_key)
+        self.claude = anthropic.Anthropic(api_key=st.secrets["claude_api_key"])
         
     def setup_gmail(self):
         """Gmail API Setup mit Session State Token-Speicherung"""
         creds = None
+        
+        # Token aus Session State laden
         if 'gmail_token' in st.session_state:
             creds = Credentials.from_authorized_user_info(st.session_state.gmail_token, self.SCOPES)
             
@@ -35,6 +36,7 @@ class EmailBot:
                 )
                 creds = flow.run_local_server(port=0)
                 
+            # Token in Session State speichern
             st.session_state.gmail_token = {
                 'token': creds.token,
                 'refresh_token': creds.refresh_token,
@@ -225,31 +227,18 @@ def main():
     apply_custom_css()
     initialize_session_state()
     
-    # Sidebar für Einstellungen
+    # Sidebar für Monitoring-Steuerung
     with st.sidebar:
-        st.header("⚙️ Einstellungen")
-        
-        # API Keys und E-Mail
-        st.session_state.claude_api_key = st.text_input(
-            "Claude API Key", 
-            type="password",
-            help="Ihr API Key von Anthropic"
-        )
-        sender_email = st.text_input(
-            "Ihre Gmail-Adresse",
-            help="Die Gmail-Adresse, die Sie verwenden möchten"
-        )
+        st.header("🤖 E-Mail Bot Status")
+        st.write(f"**Aktiver Account:** {st.secrets['gmail_sender']}")
+        st.write(f"**Ziel E-Mail:** {st.secrets['gmail_target']}")
         
         st.divider()
         
         # Monitoring Controls
         st.header("🔄 Monitoring")
-        check_interval = st.slider(
-            "Prüfintervall (Minuten)",
-            min_value=1,
-            max_value=60,
-            value=5
-        )
+        check_interval = st.secrets.get("config", {}).get("check_interval", 5)
+        st.write(f"**Prüfintervall:** {check_interval} Minuten")
         
         if not st.session_state.is_monitoring:
             if st.button("▶️ Monitoring starten", use_container_width=True):
@@ -266,12 +255,8 @@ def main():
     # Hauptbereich aufteilen
     col1, col2 = st.columns([1, 1])
     
-    if not st.session_state.claude_api_key or not sender_email:
-        st.warning("⚠️ Bitte geben Sie Ihre API Keys und E-Mail-Adresse in den Einstellungen an.")
-        return
-    
     # E-Mail-Bot initialisieren
-    bot = EmailBot(sender_email)
+    bot = EmailBot()
     
     # Linke Spalte: E-Mail-Anzeige
     with col1:
@@ -350,7 +335,8 @@ def main():
         if st.session_state.email_history:
             st.divider()
             st.header("📋 Letzte Antworten")
-            for entry in reversed(st.session_state.email_history[-5:]):  # Zeige die letzten 5 E-Mails
+            max_history = st.secrets.get("config", {}).get("max_history", 5)
+            for entry in reversed(st.session_state.email_history[-max_history:]):
                 with st.expander(f"📧 {entry['email']['subject']} ({entry['time'].strftime('%H:%M:%S')})"):
                     st.caption(f"Von: {entry['email']['from']}")
                     st.caption(f"Datum: {entry['email']['date']}")
@@ -365,5 +351,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-            
