@@ -1,6 +1,21 @@
+# Core Streamlit
 streamlit==1.31.1
+
+# Google API Clients
 google-auth-oauthlib==1.2.0
 google-auth-httplib2==0.2.0
 google-api-python-client==2.118.0
+
+# Anthropic Claude API
 anthropic==0.18.1
+
+# Utilities
 python-dotenv==1.0.1
+python-dateutil==2.8.2
+pytz==2024.1
+
+# Email handling
+email-validator==2.1.0.post1
+
+# Optional: für erweiterte Formatierung
+markdown==3.5.2
