@@ -1,12 +1,11 @@
 import streamlit as st
-import os
-import base64
-from email.mime.text import MIMEText
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 import anthropic
+import base64
+from email.mime.text import MIMEText
 import time
 from datetime import datetime
 
@@ -19,10 +18,8 @@ class EmailBot:
         self.claude = anthropic.Anthropic(api_key=st.secrets["claude_api_key"])
         
     def setup_gmail(self):
-        """Gmail API Setup mit Session State Token-Speicherung"""
         creds = None
         
-        # Token aus Session State laden
         if 'gmail_token' in st.session_state:
             creds = Credentials.from_authorized_user_info(st.session_state.gmail_token, self.SCOPES)
             
@@ -30,13 +27,23 @@ class EmailBot:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    'credentials.json', 
-                    self.SCOPES
+                # OAuth2 Flow direkt aus den Secrets
+                flow = Flow.from_client_config(
+                    {
+                        "web": {
+                            "client_id": st.secrets["google_oauth"]["client_id"],
+                            "project_id": st.secrets["google_oauth"]["project_id"],
+                            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                            "token_uri": "https://oauth2.googleapis.com/token",
+                            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                            "client_secret": st.secrets["google_oauth"]["client_secret"],
+                            "redirect_uris": ["http://localhost:8501"]
+                        }
+                    },
+                    scopes=self.SCOPES
                 )
                 creds = flow.run_local_server(port=0)
                 
-            # Token in Session State speichern
             st.session_state.gmail_token = {
                 'token': creds.token,
                 'refresh_token': creds.refresh_token,
@@ -47,9 +54,8 @@ class EmailBot:
             }
             
         return build('gmail', 'v1', credentials=creds)
-
+        
     def get_unread_emails(self):
-        """Holt ungelesene E-Mails von Günter"""
         query = f'from:{self.target_email} is:unread'
         try:
             results = self.service.users().messages().list(userId='me', q=query).execute()
@@ -59,10 +65,8 @@ class EmailBot:
             return []
 
     def get_email_content(self, msg_id):
-        """Extrahiert den Inhalt einer E-Mail"""
         try:
             message = self.service.users().messages().get(userId='me', id=msg_id, format='full').execute()
-            
             if 'payload' in message:
                 if 'parts' in message['payload']:
                     for part in message['payload']['parts']:
@@ -76,7 +80,6 @@ class EmailBot:
             return ""
 
     def get_email_details(self, msg_id):
-        """Holt alle Details einer E-Mail"""
         try:
             message = self.service.users().messages().get(
                 userId='me', 
@@ -84,13 +87,11 @@ class EmailBot:
                 format='full'
             ).execute()
             
-            # Betreff und andere Header extrahieren
             headers = message['payload']['headers']
             subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'Kein Betreff')
             date = next((h['value'] for h in headers if h['name'].lower() == 'date'), 'Kein Datum')
             from_email = next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unbekannter Absender')
             
-            # Inhalt extrahieren
             content = self.get_email_content(msg_id)
             
             return {
@@ -105,7 +106,6 @@ class EmailBot:
             return None
 
     def generate_response(self, email_content):
-        """Generiert eine Antwort mit Claude"""
         try:
             message = self.claude.messages.create(
                 model="claude-3-haiku-20240307",
@@ -134,7 +134,6 @@ class EmailBot:
             return ""
 
     def send_response(self, msg_id, response_text):
-        """Sendet die generierte Antwort"""
         try:
             message = MIMEText(response_text)
             message['to'] = self.target_email
@@ -146,7 +145,6 @@ class EmailBot:
                 body={'raw': raw, 'threadId': msg_id}
             ).execute()
             
-            # E-Mail als gelesen markieren
             self.service.users().messages().modify(
                 userId='me',
                 id=msg_id,
@@ -159,7 +157,6 @@ class EmailBot:
             return False
 
     def get_subject(self, msg_id):
-        """Holt den Betreff einer E-Mail"""
         try:
             message = self.service.users().messages().get(
                 userId='me', 
@@ -169,10 +166,8 @@ class EmailBot:
             ).execute()
             
             headers = message['payload']['headers']
-            for header in headers:
-                if header['name'].lower() == 'subject':
-                    return header['value']
-            return 'Keine Betreffzeile'
+            return next((header['value'] for header in headers 
+                        if header['name'].lower() == 'subject'), 'Keine Betreffzeile')
         except Exception as e:
             st.error(f"Fehler beim Lesen des Betreffs: {e}")
             return 'Fehler beim Lesen des Betreffs'
