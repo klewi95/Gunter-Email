@@ -1,12 +1,10 @@
 import streamlit as st
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 import anthropic
 import base64
 from email.mime.text import MIMEText
-import time
 from datetime import datetime
 
 class EmailBot:
@@ -18,41 +16,20 @@ class EmailBot:
         self.claude = anthropic.Anthropic(api_key=st.secrets["claude_api_key"])
         
     def setup_gmail(self):
+        if 'gmail_token' not in st.session_state:
+            st.session_state.gmail_token = st.secrets.get("gmail_token", {})
+            
         creds = None
-        
-        if 'gmail_token' in st.session_state:
+        if st.session_state.gmail_token:
             creds = Credentials.from_authorized_user_info(st.session_state.gmail_token, self.SCOPES)
             
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
-                # OAuth2 Flow direkt aus den Secrets
-                flow = Flow.from_client_config(
-                    {
-                        "web": {
-                            "client_id": st.secrets["google_oauth"]["client_id"],
-                            "project_id": st.secrets["google_oauth"]["project_id"],
-                            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                            "token_uri": "https://oauth2.googleapis.com/token",
-                            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                            "client_secret": st.secrets["google_oauth"]["client_secret"],
-                            "redirect_uris": ["http://localhost:8501"]
-                        }
-                    },
-                    scopes=self.SCOPES
-                )
-                creds = flow.run_local_server(port=0)
+                st.error("Gmail-Authentifizierung erforderlich. Bitte fügen Sie den Token zu den Secrets hinzu.")
+                st.stop()
                 
-            st.session_state.gmail_token = {
-                'token': creds.token,
-                'refresh_token': creds.refresh_token,
-                'token_uri': creds.token_uri,
-                'client_id': creds.client_id,
-                'client_secret': creds.client_secret,
-                'scopes': creds.scopes
-            }
-            
         return build('gmail', 'v1', credentials=creds)
         
     def get_unread_emails(self):
@@ -213,11 +190,30 @@ def apply_custom_css():
     """, unsafe_allow_html=True)
 
 def main():
-    st.set_page_config(
-        page_title="E-Mail Bot",
-        page_icon="✉️",
-        layout="wide"
-    )
+    st.set_page_config(page_title="E-Mail Bot", page_icon="✉️", layout="wide")
+    
+    if 'gmail_token' not in st.secrets:
+        st.error("""
+        Bitte fügen Sie den Gmail-Token zu Ihren Streamlit Secrets hinzu.
+        
+        Generieren Sie den Token lokal mit dem Google OAuth Playground:
+        1. Besuchen Sie https://developers.google.com/oauthplayground
+        2. Wählen Sie 'Gmail API v1' und den Scope 'https://www.googleapis.com/auth/gmail.modify'
+        3. Autorisieren Sie den Zugriff
+        4. Kopieren Sie den generierten Token in Ihre secrets.toml:
+        
+        [gmail_token]
+        token = "..."
+        refresh_token = "..."
+        token_uri = "https://oauth2.googleapis.com/token"
+        client_id = "..."
+        client_secret = "..."
+        scopes = ["https://www.googleapis.com/auth/gmail.modify"]
+        """)
+        st.stop()
+
+if __name__ == "__main__":
+    main()    
     
     apply_custom_css()
     initialize_session_state()
