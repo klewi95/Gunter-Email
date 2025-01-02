@@ -13,7 +13,7 @@ import time
 # ====================
 
 def initialize_session_state():
-    """Initializes the session state variables"""
+    """Initializes the session state variables."""
     if 'is_monitoring' not in st.session_state:
         st.session_state.is_monitoring = False
     if 'last_check' not in st.session_state:
@@ -26,7 +26,7 @@ def initialize_session_state():
         st.session_state.email_history = []
 
 def apply_custom_css():
-    """Applies custom CSS"""
+    """Applies custom CSS."""
     st.markdown("""
         <style>
         .email-container {
@@ -60,7 +60,7 @@ def parse_base64_content(encoded_data: str) -> str:
         return ""
 
 def sanitize_subject(subject: str) -> str:
-    """Ensures we only add 'Re:' once to the subject."""
+    """Ensure we only add 'Re:' once to the subject."""
     if subject.lower().startswith("re:"):
         return subject
     return f"Re: {subject}"
@@ -74,25 +74,34 @@ class EmailBot:
         self.SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
         self.sender_email = st.secrets["gmail_sender"]
         self.target_email = st.secrets["gmail_target"]
+        
+        # Create Gmail API service
         self.service = self.setup_gmail()
-        self.claude = anthropic.Anthropic(api_key=st.secrets["claude_api_key"])
+
+        # Create the Anthropic client (no `proxies` argument!)
+        self.claude = anthropic.Client(
+            api_key=st.secrets["claude_api_key"]
+        )
 
     def setup_gmail(self):
         """Creates a Gmail API service instance using stored credentials."""
         if 'gmail_token' not in st.session_state:
             st.session_state.gmail_token = st.secrets.get("gmail_token", {})
+
         creds = None
         if st.session_state.gmail_token:
             creds = Credentials.from_authorized_user_info(
                 st.session_state.gmail_token, 
                 self.SCOPES
             )
+
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
                 st.error("Gmail-Authentifizierung erforderlich. Bitte fügen Sie den Token zu den Secrets hinzu.")
                 st.stop()
+
         return build('gmail', 'v1', credentials=creds)
 
     def get_unread_emails(self):
@@ -172,34 +181,27 @@ class EmailBot:
 
     def generate_response(self, email_content: str) -> str:
         """
-        Uses Claude (Anthropic) to generate a short, warm, empathetic reply.
+        Uses the new Anthropic Client to generate a short, warm, empathetic reply.
+        We'll do a simple completion request with HUMAN/AI prompts.
         """
         try:
-            response = self.claude.messages.create(
-                model="claude-3-haiku-20240307",
-                max_tokens=300,
-                temperature=0.7,
-                system=(
-                    "Du bist ein empathischer E-Mail-Assistent, "
-                    "der persönliche und warmherzige Antworten verfasst."
-                ),
-                messages=[{
-                    "role": "user", 
-                    "content": f"""
-                    Lies die folgende E-Mail und generiere eine herzliche, persönliche Antwort.
-                    Die Antwort sollte:
-                    - Empathisch und warm sein
-                    - Auf spezifische Details aus der E-Mail eingehen
-                    - Interesse an den geteilten Erlebnissen zeigen
-                    - Nicht zu lang sein (max. 4-5 Sätze)
-                    - In einem natürlichen, konversationellen Ton geschrieben sein
-
-                    E-Mail-Inhalt:
-                    {email_content}
-                    """
-                }]
+            # Build the prompt using Anthropic's HUMAN_PROMPT / AI_PROMPT tokens
+            prompt = (
+                anthropic.HUMAN_PROMPT
+                + f"Bitte lies diese E-Mail:\n\n{email_content}\n\n"
+                + "Schreibe eine empathische und warmherzige Antwort (4-5 Sätze)."
+                + anthropic.AI_PROMPT
             )
-            return response.content
+
+            response = self.claude.completions.create(
+                model="claude-2",  # or whichever Claude model is available
+                prompt=prompt,
+                max_tokens_to_sample=300,
+                temperature=0.7
+            )
+            # 'response' is a dict with a 'completion' field
+            return response.completion.strip()
+
         except Exception as e:
             st.error(f"Fehler bei der Antwortgenerierung: {e}")
             return ""
@@ -410,6 +412,5 @@ def main():
                         st.markdown("**Gesendete Antwort:**")
                         st.markdown(entry['response'])
 
-# Run the app
 if __name__ == "__main__":
     main()
